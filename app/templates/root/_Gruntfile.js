@@ -23,6 +23,8 @@ module.exports = function(grunt) {
     var fileConfig = {
         build_dir: 'build',
         compile_dir: 'bin',
+        package_dir: 'package',
+        package: require('./package.json'),
 
         /**
          * This is a collection of file patterns for our app code (the
@@ -42,6 +44,7 @@ module.exports = function(grunt) {
 
             appTemplates: [ 'src/app/**/*.tpl.html' ],
             commonTemplates: [ 'src/common/**/*.tpl.html' ],
+            packageTemplates: [ 'src/**/*.tpl.html' ],
 
             html: [ 'src/index.html' ],
             less: 'src/less/main.less'
@@ -78,10 +81,14 @@ module.exports = function(grunt) {
             js: [
                 'vendor/angular/angular.js',
                 <% if (includeAngularResource) {%>'vendor/angular-resource/angular-resource.js',<% } %>
+                'vendor/*/package/*.js',
+
                 'vendor/angular-bootstrap/ui-bootstrap-tpls.min.js',
                 'vendor/placeholders/angular-placeholders-0.0.1-SNAPSHOT.min.js',
                 'vendor/angular-ui-router/release/angular-ui-router.js',
-                'vendor/angular-ui-utils/modules/route/route.js'
+                'vendor/angular-ui-utils/modules/route/route.js',
+                'vendor/jquery/dist/jquery.js',
+                'vendor/ng-grid/build/ng-grid.js'
             ],
             css: [
             ],
@@ -179,6 +186,16 @@ module.exports = function(grunt) {
                         expand: true
                     }
                 ]
+            },
+            compile_package_assets: {
+                files: [
+                    {
+                        src: [ '**' ],
+                        dest: '<%%= package_dir %>/assets',
+                        cwd: '<%%= build_dir %>/assets',
+                        expand: true
+                    }
+                ]
             }
         },
 
@@ -194,6 +211,7 @@ module.exports = function(grunt) {
                 ],
                 dest: '<%%= build_dir %>/assets/<%%= pkg.name %>-<%%= pkg.version %>.css'
             },
+
             // The 'compile_js' target concatenates app and vendor js code together.
             compile_js: {
                 options: {
@@ -206,10 +224,37 @@ module.exports = function(grunt) {
                     '<%%= build_dir %>/src/**/*.js',
                     '<%%= html2js.app.dest %>',
                     '<%%= html2js.common.dest %>',
+                    '<%%= html2js.package.dest %>',
                     'module.suffix'
                 ],
                 dest: '<%%= compile_dir %>/assets/<%%= pkg.name %>-<%%= pkg.version %>.js'
+            },
+            // The 'compile_package_js' target concatenates app code together. (without vendor js code)
+            compile_package_js: {
+                options: {
+                    banner: '<%%= meta.banner %>',
+
+                    //FIXME: only replace url that were processed by html2js
+                    process: function(src, filepath) {
+                      var subpath = fileConfig.package.name + '/' + filepath.split('/')[2];
+                      var re = new RegExp("templateUrl: '", 'g');
+
+                      var replaced = src.replace(re, "templateUrl: '"+subpath+'/');
+                      return replaced;
+                    }
+                },
+                src: [
+                    'module.prefix',
+                    '<%%= build_dir %>/src/**/*.module.js',
+                    '<%%= build_dir %>/src/**/*.js',
+                    '<%%= html2js.app.dest %>',
+                    '<%%= html2js.common.dest %>',
+                    '<%%= html2js.package.dest %>',
+                    'module.suffix'
+                ],
+                dest: '<%%= package_dir %>/<%%= pkg.name %>-<%%= pkg.version %>.js'
             }
+
         },
 
         /**
@@ -261,7 +306,8 @@ module.exports = function(grunt) {
                     banner: '<%%= meta.banner %>'
                 },
                 files: {
-                    '<%%= concat.compile_js.dest %>': '<%%= concat.compile_js.dest %>'
+                    '<%%= concat.compile_js.dest %>': '<%%= concat.compile_js.dest %>',
+                    '<%%= concat.compile_package_js.dest %>': '<%%= concat.compile_package_js.dest %>'
                 }
             }
         },
@@ -346,19 +392,34 @@ module.exports = function(grunt) {
             // These are the templates from 'src/app'.
             app: {
                 options: {
-                    base: 'src/app'
+                    base: 'src/app',
+                    module: '<%%= pkg.name %>-templates-app'
                 },
                 src: [ '<%%= app_files.appTemplates %>' ],
-                dest: '<%%= build_dir %>/templates-app.js'
+                dest: '<%%= build_dir %>/<%%= pkg.name %>-templates-app.js'
             },
 
             // These are the templates from 'src/common'.
             common: {
                 options: {
-                    base: 'src/common'
+                    base: 'src/common',
+                    module: '<%%= pkg.name %>-templates-common'
                 },
                 src: [ '<%%= app_files.commonTemplates %>' ],
-                dest: '<%%= build_dir %>/templates-common.js'
+                dest: '<%%= build_dir %>/<%%= pkg.name %>-templates-common.js'
+            },
+            // These are the templates from 'src'.
+
+            package: {
+                options: {
+                    base: 'src',
+                    module: '<%%= pkg.name %>-templates',
+                    rename: function(templateName) {
+                      return  fileConfig.package.name +'/'+ templateName;
+                    }
+                },
+                src: [ '<%%= app_files.packageTemplates %>' ],
+                dest: '<%%= build_dir %>/<%%= pkg.name %>-templates.js'
             }
         },
 
@@ -382,6 +443,7 @@ module.exports = function(grunt) {
                     '<%%= build_dir %>/src/**/*.js',
                     '<%%= html2js.common.dest %>',
                     '<%%= html2js.app.dest %>',
+                    '<%%= html2js.package.dest %>',
                     '<%%= vendor_files.css %>',
                     '<%%= build_dir %>/assets/<%%= pkg.name %>-<%%= pkg.version %>.css'
                 ]
@@ -441,6 +503,7 @@ module.exports = function(grunt) {
                     '<%%= vendor_files.js %>',
                     '<%%= html2js.app.dest %>',
                     '<%%= html2js.common.dest %>',
+                    '<%%= html2js.package.dest %>',
                     '<%%= test_files.js %>'
                 ]
             }
@@ -528,7 +591,8 @@ module.exports = function(grunt) {
             tpls: {
                 files: [
                     '<%%= app_files.appTemplates %>',
-                    '<%%= app_files.commonTemplates %>'
+                    '<%%= app_files.commonTemplates %>',
+                    '<%%= app_files.packageTemplates %>'
                 ],
                 tasks: [ 'html2js' ]
             },
@@ -571,7 +635,6 @@ module.exports = function(grunt) {
         }
     };
 
-
     /** ********************************************************************************* */
     /** **************************** Project Configuration ****************************** */
     grunt.initConfig(_.extend(taskConfig, fileConfig));
@@ -601,6 +664,12 @@ module.exports = function(grunt) {
         'less:compile', 'copy:compile_assets', 'concat:compile_js', 'uglify', 'index:compile'
     ]);
 
+    // The 'compile-package' task gets your componet ready for being embedded in another application by concatenating your code.
+    // The final goal is to get a bower package that can be included as dependency by a host application
+    // Note - compile-package builds off of the build dir (look at concat:compile_package_js), so run grunt build before grunt compile-package
+    grunt.registerTask('compile-package', [
+        'less:compile', 'concat:compile_package_js', 'copy:compile_package_assets', 'index:compile'
+    ]);
     // A utility function to get all app JavaScript sources.
     function filterForJS (files) {
         return files.filter(function (file) {
